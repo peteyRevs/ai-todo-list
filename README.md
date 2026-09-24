@@ -48,7 +48,7 @@ npm run dev                   # http://localhost:3000
 Other scripts:
 
 ```bash
-npm test            # Vitest: sorting, API route handlers (in-memory SQLite) and the Gemini module (SDK mocked)
+npm test            # Vitest: sorting, Server Actions (in-memory SQLite) and the Gemini module (SDK mocked)
 npm run typecheck   # generate Next route types and run tsc
 npm run lint        # ESLint
 npm run build       # production build (standalone output)
@@ -59,36 +59,42 @@ npm run build       # production build (standalone output)
 ```
 src/
   app/
-    page.tsx                         Server component: reads todos from SQLite, renders <TodoApp>
-    api/todos/route.ts               GET list, POST create
-    api/todos/[id]/route.ts          PATCH complete/reopen, DELETE
-    api/todos/[id]/steps/route.ts    POST: generate AI steps and save them on the item
-    api/health/route.ts              Health check used by the Docker HEALTHCHECK
-  components/TodoApp.tsx             Client UI (optimistic toggle/delete)
+    page.tsx                  Server component: reads todos from SQLite, renders <TodoApp>
+    api/health/route.ts       Health check used by the Docker HEALTHCHECK
+  actions/todos.ts            Server Actions ("use server"): add, complete, delete, generate steps
+  components/
+    TodoApp.tsx               Client UI: list state, optimistic updates, calls the actions
+    TodoItem.tsx              One row: checkbox, wand, delete, steps panel
+    icons.tsx                 Inline SVG icons
   lib/
-    db.ts                            SQLite connection + schema
-    todos.ts                         Data access
-    sort.ts                          Ordering rule, shared by server and client
-    ai.ts                            Gemini call with structured (Zod-validated) output
-    validation.ts, http.ts           Request validation and helpers
-tests/                               Vitest tests
+    db.ts                     SQLite connection + schema
+    todos.ts                  Data access
+    sort.ts                   Ordering rule, shared by server and client
+    ai.ts                     Gemini call with structured (Zod-validated) output
+    validation.ts             Zod schemas for action arguments
+    types.ts                  Todo and ActionResult types
+tests/                        Vitest tests
 ```
 
 **Persistence.** The list lives on the server in SQLite (`better-sqlite3`). In Docker the database file is on a named volume. The page is rendered on the server for each request, so it always shows the current list, including after navigating away and back. [ASSUMPTIONS.md](./ASSUMPTIONS.md) explains why I chose this over `localStorage`.
 
-**Ordering.** Open items come first, oldest first. Completed items follow, most recently completed first. If you uncheck an item, it moves back up. The rule lives in `lib/sort.ts` and both the API and the UI use it, so optimistic updates land in the same place the server would put them.
+**Ordering.** Open items come first, oldest first. Completed items follow, most recently completed first. If you uncheck an item, it moves back up. The rule lives in `lib/sort.ts` and both the server and the UI use it, so optimistic updates land in the same place the server would put them.
 
-**Magic wand.** `POST /api/todos/:id/steps` sends the item's title to Gemini and asks for 3–7 short, actionable steps. The response is constrained to a JSON schema generated from a Zod schema (`{ steps: string[] }`) and validated again with Zod on the server. Steps are saved on the item, so reopening them is instant and costs nothing. **Regenerate** asks for a fresh set. The API key stays on the server and is never sent to the browser. Provider errors (bad key, rate limit, safety block) are turned into clear messages in the UI.
+**Magic wand.** The `generateTodoSteps` action sends the item's title to Gemini and asks for 3–7 short, actionable steps. The response is constrained to a JSON schema generated from a Zod schema (`{ steps: string[] }`) and validated again with Zod on the server. Steps are saved on the item, so reopening them is instant and costs nothing. **Regenerate** asks for a fresh set. The API key stays on the server and is never sent to the browser. Provider errors (bad key, rate limit, safety block) are turned into clear messages in the UI.
 
-### API
+**Server Actions.** The UI talks to the server only through the Server Actions in `src/actions/todos.ts`. There is no hand-written REST API or `fetch` code. Each action:
 
-| Method | Path | Body | Response |
-|---|---|---|---|
-| `GET` | `/api/todos` | – | `Todo[]` (sorted) |
-| `POST` | `/api/todos` | `{ "title": string }` (1–200 chars) | `201 Todo` |
-| `PATCH` | `/api/todos/:id` | `{ "completed": boolean }` | `Todo` |
-| `DELETE` | `/api/todos/:id` | – | `204` |
-| `POST` | `/api/todos/:id/steps` | – | `Todo` with `steps` |
-| `GET` | `/api/health` | – | `{ "status": "ok" }` |
+- validates its arguments with Zod, because actions can be called with any payload by a direct POST;
+- returns `{ ok: true, data }` or `{ ok: false, error }` instead of throwing, because Next.js hides thrown error messages in production builds.
 
-Errors return `{ "error": string }` with a 4xx/5xx status.
+| Action | Arguments | Returns |
+|---|---|---|
+| `getTodos` | – | `Todo[]` (sorted) |
+| `addTodo` | `title` (1–200 chars after trimming) | `Todo` |
+| `setTodoCompleted` | `id`, `completed` | `Todo` |
+| `deleteTodo` | `id` | `null` |
+| `generateTodoSteps` | `id` | `Todo` with `steps` |
+
+Next.js runs Server Actions one at a time per browser tab. While the wand is waiting for Gemini, other clicks still update the screen straight away (they're optimistic), but saving them waits until the AI call finishes. See ASSUMPTIONS.md.
+
+`GET /api/health` returns `{ "status": "ok" }` for the Docker health check.

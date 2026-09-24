@@ -7,3 +7,9 @@ export type Todo = {
   /** AI-generated steps, cached once generated. */
   steps: string[] | null;
 };
+
+/**
+ * Server actions return expected errors as values: Next.js hides the
+ * message of errors thrown from server actions in production builds.
+ */
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };

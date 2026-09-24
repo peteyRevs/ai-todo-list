@@ -7,6 +7,7 @@
   - it survives things `localStorage` doesn't, such as clearing site data, private windows, or opening the app in a different browser on the same machine;
   - "deployable via Docker" then means a real service with its data on a volume.
 - The database lives on a Docker named volume, so the list survives container restarts and re-creation (`docker compose down`/`up`). `docker compose down -v` deletes it on purpose.
+- The UI uses Next.js Server Actions for every change, including the AI wand. Next.js runs Server Actions one at a time per tab. So while the wand is generating steps (a few seconds), other changes like checking or deleting items show on screen immediately but are saved only after the AI call finishes. For a single-user list this is acceptable, and it keeps one simple way of talking to the server. If it became a problem, the wand could move to a Route Handler, which runs in parallel.
 - Only one browser tab at a time is expected. Multiple open tabs don't sync live, but a refresh always shows the latest data.
 
 ## To-do behaviour

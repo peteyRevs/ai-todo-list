@@ -22,10 +22,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-async function expectAIError(status: number) {
+async function expectAIError(message: RegExp) {
   const error = await generateSteps("Plan a trip").catch((e) => e);
   expect(error).toBeInstanceOf(AIError);
-  expect(error.status).toBe(status);
+  expect(error.message).toMatch(message);
 }
 
 describe("generateSteps", () => {
@@ -40,34 +40,34 @@ describe("generateSteps", () => {
     expect(request.config.responseJsonSchema).toMatchObject({ type: "object" });
   });
 
-  it("reports 503 when no API key is configured", async () => {
+  it("reports a missing API key", async () => {
     vi.stubEnv("GEMINI_API_KEY", "");
-    await expectAIError(503);
+    await expectAIError(/not configured/);
     expect(generateContent).not.toHaveBeenCalled();
   });
 
-  it("reports 422 when the response is blocked for safety", async () => {
+  it("reports a response blocked for safety", async () => {
     generateContent.mockResolvedValue(
       reply(undefined, { candidates: [{ finishReason: FinishReason.SAFETY }] }),
     );
-    await expectAIError(422);
+    await expectAIError(/declined/);
   });
 
   it.each([["not json"], [JSON.stringify({ steps: [] })], [undefined]])(
-    "reports 502 for an unusable response (%s)",
+    "reports an unusable response (%s)",
     async (text) => {
       generateContent.mockResolvedValue(reply(text));
-      await expectAIError(502);
+      await expectAIError(/unexpected response/);
     },
   );
 
   it.each([
-    [429, 429],
-    [400, 502],
-    [500, 502],
-  ])("maps provider status %i to %i", async (providerStatus, status) => {
+    [429, /rate limiting/],
+    [400, /Check GEMINI_API_KEY/],
+    [500, /returned an error/],
+  ])("maps provider status %i to a friendly message", async (providerStatus, message) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     generateContent.mockRejectedValue(new ApiError({ message: "boom", status: providerStatus }));
-    await expectAIError(status);
+    await expectAIError(message);
   });
 });

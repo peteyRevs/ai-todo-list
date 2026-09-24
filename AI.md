@@ -6,7 +6,7 @@
 |---|---|
 | **Harness** | [Claude Code](https://claude.com/claude-code) (Anthropic's agentic CLI), run in the terminal on macOS |
 | **Model** | Claude Opus 5.5 (`claude-opus-5-5`, 1M context) |
-| **Tools the agent used** | Shell (npm, git, Docker, curl), file read/write/edit, the bundled `claude-api` skill (Anthropic SDK reference, used for the first version of the wand), and web fetches of Google's Gemini API docs (current model IDs and structured output) |
+| **Tools the agent used** | Shell (npm, git, Docker, curl), file read/write/edit, Chrome browser automation (Claude in Chrome) for UI checks, the bundled `claude-api` skill (Anthropic SDK reference, used for the first version of the wand), and web fetches of Google's Gemini API docs (current model IDs and structured output) |
 | **Reference docs** | The Next.js 16 docs bundled in `node_modules/next/dist/docs`, read by the agent before writing route handlers, `connection()` and `output: "standalone"` config (`create-next-app` adds `AGENTS.md`/`CLAUDE.md` pointing agents there) |
 
 ## How the work was split
@@ -18,7 +18,8 @@ I used Claude Code as a pair programmer. I made the product and architecture dec
 3. **Stack decision.** I chose Next.js because it's what Agora uses. The agent flagged the one risk (the native SQLite module inside a standalone Docker build) and handled it.
 4. **AI provider.** The wand first used Anthropic Claude. I then asked for Google Gemini instead. The agent checked the installed `@google/genai` SDK types and Google's current model list before rewriting `src/lib/ai.ts`, instead of relying on memory.
 5. **Implementation.** The agent scaffolded the app with `create-next-app`, then wrote the data layer, API routes, UI, AI integration, tests, Dockerfile and docs.
-6. **Verification.** The agent ran unit/API tests, typecheck, lint, a production build, curl smoke tests against the standalone server, and a Docker Compose run that checked data survives `restart` and `down`/`up`.
+6. **Verification.** The agent ran unit and action tests, typecheck, lint, a production build, curl smoke tests against the standalone server, and a Docker Compose run that checked data survives `restart` and `down`/`up`.
+7. **Refactor to Server Actions.** I found `TodoApp` too large and asked to split out the icons and `TodoItem`, and to move the server calls into a `"use server"` actions module. The agent pointed out (quoting the Next.js docs) that Server Actions run one at a time per client, so a slow AI call would hold up other saves, and suggested keeping the wand as a Route Handler. I chose to make everything a Server Action for simplicity and recorded the trade-off in `ASSUMPTIONS.md`. The agent replaced the REST routes and `fetch` code with Zod-validated actions that return errors as values, rewrote the tests, and checked the result in Chrome (through the Claude in Chrome extension): add, complete while the wand was running, AI steps, reload persistence, and delete.
 
 Problems the agent hit and fixed along the way:
 
@@ -39,6 +40,10 @@ These are the main prompts I gave the agent (lightly trimmed):
 > where is the sqllite server?
 
 > lets use gemini instead of claude for the ai wand
+
+> i dont like how the ToDoApp component is so large. lets move the icons to an icons file in components. Same with todo item. I also think . we could move the api action functions to an actions folder and mark that index file as use server, what do you think
+
+*(After the agent explained the trade-offs, I chose "Everything as actions".)*
 
 ## AI inside the application
 
