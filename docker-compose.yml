@@ -1,0 +1,16 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # Read from the shell or a .env file next to this compose file.
+      # Leave GEMINI_API_KEY unset to run without the AI feature.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+    volumes:
+      - todo-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  todo-data:
